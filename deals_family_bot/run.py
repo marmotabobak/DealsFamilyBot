@@ -2,13 +2,13 @@
 # TODO: Refactor with classes in outer modules (how to pass dp and how not to use global postgres_engine)
 import yaml
 import logging
-import datetime
 import argparse
 import os
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, types, executor
-from sqlalchemy import select, func
+from sqlalchemy import select
+from funcs import *
 
 from model import Config, Deal
 from postgres import PostgresEngine
@@ -58,17 +58,6 @@ except Exception:
 
 postgres_engine.create_all_tables()
 
-def first_day_of_current_month() -> datetime:
-    return datetime.datetime(
-        year=datetime.datetime.now().year,
-        month=datetime.datetime.now().month,
-        day=1
-    )
-
-
-def num_with_delimiters(num: int, delimiter: str = ' ') -> str:
-    return f'{num:,}'.replace(',', delimiter)
-
 
 @dp.message_handler(commands=['start', 'help'])
 async def process_start_command(message: types.Message) -> None:
@@ -84,7 +73,7 @@ async def process_start_command(message: types.Message) -> None:
     await message.answer(output_text, reply_markup=markup)
 
 
-@dp.message_handler(regexp=r'.+ела .*в этом месяце')
+@dp.message_handler(regexp=r'.+ела.* месяц.?')
 async def view_my_costs(message: types.Message) -> None:
 
     global postgres_engine
@@ -93,31 +82,41 @@ async def view_my_costs(message: types.Message) -> None:
     output_text = ''
 
     try:
-        if 'Мои дела' in message.text:
-            user_tg_id = message.from_user.id
+        day_from = first_day_of_current_month()
+        day_to = first_day_of_next_month()
+        month_name = get_month_name(day_from.month)
+        if message.text == 'Мои дела в этом месяце':
+            users = {message.from_user.id: TG_USERS[message.from_user.id]}
+        elif message.text == 'Отчет по делам за прошлый месяц':
+            day_from = first_day_of_last_month()
+            day_to = first_day_of_current_month()
+            month_name = get_month_name(day_from.month)
+            users = TG_USERS
+        elif 'Дела ' in message.text:
+            user_name = message.text.split('Дела ')[1].split(' в этом месяце')[0]
+            user_tg_id = int(next(filter(lambda x: TG_USERS[x] == user_name, TG_USERS.keys())))
+            users = {user_tg_id: user_name}
         else:
-            another_user_name = message.text.split('Дела ')[1].split(' в этом месяце')[0]
-            user_tg_id = int(next(filter(lambda x: TG_USERS[x] == another_user_name, TG_USERS.keys())))
-    except IndexError as e:
-        user_tg_id = None
-        logging.error(f'Error while parsing button text for user_name: {e}')
-        output_text = f'!ERR! Ошибка определения имени пользователя'
-    except Exception:
-        raise
+            raise ValueError
 
-    if user_tg_id:
-        output_text = ''
-
-        session = postgres_engine.session()
         try:
-            stmt = select(Deal).order_by(Deal.ts).where(
-                Deal.user_telegram_id == user_tg_id
-            ).where(
-                Deal.ts >= first_day_of_current_month()
-            )
+            session = postgres_engine.session()
 
-            for deal in session.scalars(stmt):
-                output_text += f'{deal.ts.strftime("%d")} {deal.name}\n'
+            for user_tg_id, user_name in users.items():
+                output_text = f'Дела {user_name} за {month_name}:\n'
+
+                stmt = select(Deal).order_by(Deal.ts).where(
+                    Deal.user_telegram_id == user_tg_id
+                ).where(
+                    Deal.ts >= day_from
+                ).where(
+                    Deal.ts < day_to
+                )
+
+                for deal in session.scalars(stmt):
+                    output_text += f'    {deal.ts.strftime("%d")} {deal.name}\n'
+
+                await message.answer(output_text)
 
         except Exception as e:
             logging.error(f'Error while reading database: {e}')
@@ -126,10 +125,10 @@ async def view_my_costs(message: types.Message) -> None:
             session.close()
             logging.debug('[x] Postgres session closed')
 
-    if not output_text:
-        output_text = 'Данных за период нет...'
-
-    await message.answer(output_text)
+    except (IndexError, ValueError) as e:
+        logging.error(f'Error while parsing button message text: {e}')
+    except Exception:
+        raise
 
 
 @dp.message_handler(lambda message: message.from_user.id in (
