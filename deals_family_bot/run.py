@@ -3,6 +3,9 @@
 import yaml
 import logging
 import datetime
+import argparse
+import os
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, types, executor
 from sqlalchemy import select, func
@@ -17,10 +20,19 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-CONFIG_FILE_PATH = '../configs/dev.yml'
+parser = argparse.ArgumentParser()
+parser.add_argument('--config', '-c', type=str, help='config path')
+args = parser.parse_args()
+config_path_str = args.config or os.environ.get('APP_CONFIG_PATH')
 
-logging.info(f'Starting service with config {CONFIG_FILE_PATH}')
-with open(CONFIG_FILE_PATH) as f:
+if config_path_str:
+    config_path = Path(config_path_str).resolve()
+    logging.info(f'Starting service with config {config_path}')
+else:
+    raise ValueError('App config path should be provided in -c argument')
+
+logging.info(f'Starting service with config {config_path}')
+with open(config_path) as f:
     data = yaml.safe_load(f)
 
 config = Config.parse_obj(data)
@@ -39,6 +51,7 @@ except Exception:
 
 try:
     postgres_engine = PostgresEngine(config=config.db)
+    postgres_engine.drop_and_create_all_tables()
 except Exception:
     logging.error(f'[x] Error while initializing Postgres engine')
     raise

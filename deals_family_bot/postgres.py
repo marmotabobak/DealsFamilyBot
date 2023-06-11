@@ -31,11 +31,12 @@ class PostgresEngine:
             raise
 
     def drop_all_tables(self) -> None:
-        try:
-            Base.metadata.drop_all(self._engine)
-            logging.info('[x] All service tables dropped')
-        except Exception as e:
-            logging.error(f'Error while dropping tables: {e}')
+        if input('SURE TO DELETE ALL DATA? Print YES if so: ') == 'YES':
+            try:
+                Base.metadata.drop_all(self._engine)
+                logging.info('[x] All service tables dropped')
+            except Exception as e:
+                logging.error(f'Error while dropping tables: {e}')
 
     def create_all_tables(self) -> None:
         try:
