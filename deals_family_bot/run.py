@@ -51,7 +51,7 @@ except Exception:
 
 try:
     postgres_engine = PostgresEngine(config=config.db)
-    postgres_engine.drop_and_create_all_tables()
+    # postgres_engine.drop_and_create_all_tables()
 except Exception:
     logging.error(f'[x] Error while initializing Postgres engine')
     raise
@@ -80,6 +80,7 @@ async def process_start_command(message: types.Message) -> None:
     for tg_user_id, tg_user_name in TG_USERS.items():
         if tg_user_id != message.from_user.id:
             markup.add(types.KeyboardButton('Дела ' + tg_user_name + ' в этом месяце'))
+    markup.add(types.KeyboardButton('Отчет по делам за прошлый месяц'))
     await message.answer(output_text, reply_markup=markup)
 
 
